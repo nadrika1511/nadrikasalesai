@@ -1,0 +1,140 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- Helpers ----------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function claims() {
+      return request.auth.token;
+    }
+
+    function isSuperAdmin() {
+      return isSignedIn() && claims().rol == 'superadmin';
+    }
+
+    function belongsToEmpresa(empresaId) {
+      return isSignedIn() && claims().empresaId == empresaId;
+    }
+
+    function hasRol(roles) {
+      return isSignedIn() && claims().rol in roles;
+    }
+
+    // Roles con acceso de escritura amplio dentro de su empresa
+    function esAdminOVendedor() {
+      return hasRol(['admin_empresa', 'vendedor']);
+    }
+
+    // ---------- Empresas (colección raíz) ----------
+    match /empresas/{empresaId} {
+      allow read: if isSuperAdmin() || belongsToEmpresa(empresaId);
+      allow write: if isSuperAdmin() ||
+                      (belongsToEmpresa(empresaId) && hasRol(['admin_empresa']));
+
+      // ---------- Usuarios de la empresa ----------
+      match /usuarios/{usuarioId} {
+        allow read: if isSuperAdmin() || belongsToEmpresa(empresaId);
+        allow write: if isSuperAdmin() ||
+                        (belongsToEmpresa(empresaId) && hasRol(['admin_empresa']));
+      }
+
+      // ---------- Catálogo ----------
+      match /productos/{productoId} {
+        allow read: if isSuperAdmin() || belongsToEmpresa(empresaId);
+        allow write: if isSuperAdmin() ||
+                        (belongsToEmpresa(empresaId) && esAdminOVendedor());
+      }
+
+      match /categorias/{categoriaId} {
+        allow read: if isSuperAdmin() || belongsToEmpresa(empresaId);
+        allow write: if isSuperAdmin() ||
+                        (belongsToEmpresa(empresaId) && hasRol(['admin_empresa']));
+      }
+
+      // ---------- Clientes y su memoria ----------
+      match /clientes/{clienteId} {
+        allow read: if isSuperAdmin() || belongsToEmpresa(empresaId);
+        allow write: if isSuperAdmin() ||
+                        (belongsToEmpresa(empresaId) && esAdminOVendedor());
+
+        match /memoria/{registroId} {
+          allow read: if isSuperAdmin() || belongsToEmpresa(empresaId);
+          // La memoria la escribe normalmente la IA (Cloud Function con Admin SDK,
+          // que se salta las rules). Desde el cliente solo admin/vendedor pueden corregirla.
+          allow write: if isSuperAdmin() ||
+                          (belongsToEmpresa(empresaId) && esAdminOVendedor());
+        }
+      }
+
+      // ---------- Conversaciones y mensajes ----------
+      match /conversaciones/{conversacionId} {
+        allow read: if isSuperAdmin() || belongsToEmpresa(empresaId);
+        allow write: if isSuperAdmin() ||
+                        (belongsToEmpresa(empresaId) && esAdminOVendedor());
+
+        match /mensajes/{mensajeId} {
+          allow read: if isSuperAdmin() || belongsToEmpresa(empresaId);
+          allow write: if isSuperAdmin() ||
+                          (belongsToEmpresa(empresaId) && esAdminOVendedor());
+        }
+      }
+
+      // ---------- Pedidos, cotizaciones, pagos ----------
+      match /pedidos/{pedidoId} {
+        allow read: if isSuperAdmin() || belongsToEmpresa(empresaId);
+        allow write: if isSuperAdmin() ||
+                        (belongsToEmpresa(empresaId) && hasRol(['admin_empresa', 'vendedor', 'operador']));
+      }
+
+      match /cotizaciones/{cotizacionId} {
+        allow read: if isSuperAdmin() || belongsToEmpresa(empresaId);
+        allow write: if isSuperAdmin() ||
+                        (belongsToEmpresa(empresaId) && esAdminOVendedor());
+      }
+
+      match /pagos/{pagoId} {
+        allow read: if isSuperAdmin() || belongsToEmpresa(empresaId);
+        // Los pagos normalmente los confirma un webhook (Admin SDK).
+        // Desde el cliente, solo admin puede editarlos manualmente.
+        allow write: if isSuperAdmin() ||
+                        (belongsToEmpresa(empresaId) && hasRol(['admin_empresa']));
+      }
+
+      // ---------- Marketing ----------
+      match /promociones/{promoId} {
+        allow read: if isSuperAdmin() || belongsToEmpresa(empresaId);
+        allow write: if isSuperAdmin() ||
+                        (belongsToEmpresa(empresaId) && hasRol(['admin_empresa']));
+      }
+
+      match /campanas/{campanaId} {
+        allow read: if isSuperAdmin() || belongsToEmpresa(empresaId);
+        allow write: if isSuperAdmin() ||
+                        (belongsToEmpresa(empresaId) && hasRol(['admin_empresa']));
+      }
+
+      // ---------- Base de conocimiento (RAG) ----------
+      match /faqs/{faqId} {
+        allow read: if isSuperAdmin() || belongsToEmpresa(empresaId);
+        allow write: if isSuperAdmin() ||
+                        (belongsToEmpresa(empresaId) && hasRol(['admin_empresa']));
+      }
+
+      match /politicas/{politicaId} {
+        allow read: if isSuperAdmin() || belongsToEmpresa(empresaId);
+        allow write: if isSuperAdmin() ||
+                        (belongsToEmpresa(empresaId) && hasRol(['admin_empresa']));
+      }
+
+      // ---------- Solo lectura para todos, escritura solo por Cloud Functions ----------
+      match /logs/{logId} {
+        allow read: if isSuperAdmin() || belongsToEmpresa(empresaId);
+        allow write: if false; // Solo Admin SDK desde Cloud Functions
+      }
+    }
+  }
+}

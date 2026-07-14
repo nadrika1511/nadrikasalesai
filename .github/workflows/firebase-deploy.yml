@@ -1,0 +1,37 @@
+name: Deploy a Firebase
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar código del repo
+        uses: actions/checkout@v4
+
+      - name: Configurar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalar dependencias del frontend
+        run: npm install
+
+      - name: Compilar frontend (Vite)
+        run: npm run build
+
+      - name: Instalar dependencias de Cloud Functions
+        run: npm install --prefix functions
+
+      - name: Compilar Cloud Functions (TypeScript)
+        run: npm run build --prefix functions
+
+      - name: Deploy a Firebase (Hosting + Firestore Rules/Indexes + Functions)
+        uses: w9jds/firebase-action@master
+        with:
+          args: deploy --only hosting,firestore:rules,firestore:indexes,functions
+        env:
+          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          PROJECT_ID: ventasai-646d6
